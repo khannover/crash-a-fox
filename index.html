@@ -24,6 +24,9 @@
             <div>Punkte: <span id="score">0</span></div>
         </div>
 
+        <!-- Music Visualizer HUD -->
+        <div id="music-viz" class="hidden fixed top-6 right-6 flex gap-1 items-end h-10"></div>
+
         <!-- Startbildschirm -->
         <div id="start-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm z-10">
             <h1 class="text-5xl md:text-7xl font-extrabold text-yellow-400 mb-4 text-center drop-shadow-lg" style="-webkit-text-stroke: 2px #b45309;">CRASH FUCHS</h1>
@@ -36,6 +39,18 @@
             <button id="start-btn" class="px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105 border-4 border-yellow-300">
                 Spiel Starten
             </button>
+            <button id="music-mode-btn" class="mt-4 px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105 border-4 border-yellow-300">
+                🎵 Music Mode
+            </button>
+            <div id="music-panel" class="hidden mt-4 p-4 bg-gray-800/90 rounded-xl text-white w-full max-w-md">
+                <label for="audio-file" class="block mb-2 font-semibold">Upload MP3</label>
+                <input id="audio-file" type="file" accept="audio/mp3,audio/mpeg,audio/*" class="block w-full mb-4 text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-orange-500 file:text-white hover:file:bg-orange-600">
+                <label for="audio-url" class="block mb-2 font-semibold">or paste audio URL</label>
+                <input id="audio-url" type="text" placeholder="https://..." class="block w-full mb-4 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-sm">
+                <button id="play-music-btn" disabled class="w-full px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xl font-bold rounded-xl shadow-lg transition">
+                    ▶ Play with Music
+                </button>
+            </div>
         </div>
 
         <!-- Game Over Bildschirm -->
@@ -56,6 +71,7 @@
         let collectibles = [];
         let groundSegments = [];
         let animationId;
+        let ambientLight;
         
         // Spielstatus
         let isPlaying = false;
@@ -72,6 +88,36 @@
         const JUMP_STRENGTH = 0.35;
         const FLOOR_Y = 0.5; // Y-Position des Fuchses am Boden
         let runTime = 0; // Für die Laufanimation
+
+        // --- Audio / Music Reactive Mode ---
+        let audioContext = null;
+        let analyser = null;
+        let audioSource = null;
+        let audioBuffer = null;
+        let musicReactiveMode = false;
+
+        // Band energy values updated each frame
+        let bassEnergy = 0;   // 20–250 Hz
+        let midEnergy = 0;    // 250–2000 Hz
+        let trebleEnergy = 0; // 2000–8000 Hz
+        let overallAmplitude = 0;
+        let beatCooldown = 0;
+        let dataArray = null;
+
+        // Audio tuning constants
+        const BASS_BIN_START = 0;
+        const BASS_BIN_END = 4;       // bins 0–3 (bass)
+        const MID_BIN_START = 4;
+        const MID_BIN_END = 16;       // bins 4–15 (mid)
+        const TREBLE_BIN_START = 16;
+        const TREBLE_BIN_END = 32;    // bins 16–31 (treble)
+        const BASS_BEAT_THRESHOLD = 0.75;
+        const BEAT_COOLDOWN_FRAMES = 15;
+        const BASE_SPEED_INCREMENT = 0.0001;
+        const MIN_MUSIC_SPEED = 0.3;
+        const BASS_SPEED_MULTIPLIER = 0.008;
+        const SHAKE_INTENSITY_X = 0.3;
+        const SHAKE_INTENSITY_Y = 0.15;
 
         // --- Initialisierung ---
         function init() {
@@ -94,7 +140,7 @@
             container.appendChild(renderer.domElement);
 
             // Licht
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
 
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -116,6 +162,37 @@
             // Event Listeners für UI
             document.getElementById('start-btn').addEventListener('click', startGame);
             document.getElementById('restart-btn').addEventListener('click', startGame);
+
+            // Music Mode UI
+            document.getElementById('music-mode-btn').addEventListener('click', () => {
+                document.getElementById('music-panel').classList.toggle('hidden');
+            });
+
+            document.getElementById('audio-file').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) loadAudioFile(file);
+            });
+
+            document.getElementById('audio-url').addEventListener('change', (e) => {
+                const url = e.target.value.trim();
+                if (url) loadAudioURL(url);
+            });
+
+            document.getElementById('play-music-btn').addEventListener('click', () => {
+                setupAudioContext();
+                startGame();
+                startMusic();
+                document.getElementById('music-viz').classList.remove('hidden');
+            });
+
+            // Create music viz bars
+            const vizContainer = document.getElementById('music-viz');
+            for (let i = 0; i < 8; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'viz-bar';
+                bar.style.cssText = 'width:6px;background:#FBBF24;border-radius:2px;height:4px;';
+                vizContainer.appendChild(bar);
+            }
 
             // Steuerung einrichten
             setupControls();
@@ -346,11 +423,118 @@
             }
         }
 
+        // --- Audio Functions ---
+        function setupAudioContext() {
+            if (audioContext) return;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.connect(audioContext.destination);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        function loadAudioFile(file) {
+            setupAudioContext();
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                audioContext.decodeAudioData(
+                    e.target.result,
+                    function(buffer) {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                    },
+                    function() {
+                        alert('Could not decode audio file. Please try a different MP3.');
+                    }
+                );
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadAudioURL(url) {
+            setupAudioContext();
+            fetch(url)
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.arrayBuffer();
+                })
+                .then(buf => audioContext.decodeAudioData(
+                    buf,
+                    buffer => {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                    },
+                    () => {
+                        alert('Could not decode audio from URL. The file may not be a supported audio format.');
+                    }
+                ))
+                .catch(err => {
+                    if (err.message && err.message.startsWith('HTTP ')) {
+                        alert('Could not load audio from URL (' + err.message + '). Check the URL and ensure the server allows cross-origin requests.');
+                    }
+                    // decode errors are already handled above
+                });
+        }
+
+        function startMusic() {
+            if (audioSource) {
+                try { audioSource.stop(); } catch(e) {}
+                audioSource = null;
+            }
+            if (!audioBuffer) return;
+            audioSource = audioContext.createBufferSource();
+            audioSource.buffer = audioBuffer;
+            audioSource.loop = true;
+            audioSource.connect(analyser);
+            audioSource.start(0);
+            musicReactiveMode = true;
+        }
+
+        function updateAudioData() {
+            if (!analyser || !dataArray) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            // Bass: bins 0–3
+            let bass = 0;
+            for (let i = BASS_BIN_START; i < BASS_BIN_END; i++) bass += dataArray[i];
+            bassEnergy = (bass / (BASS_BIN_END - BASS_BIN_START)) / 255;
+
+            // Mid: bins 4–15
+            let mid = 0;
+            for (let i = MID_BIN_START; i < MID_BIN_END; i++) mid += dataArray[i];
+            midEnergy = (mid / (MID_BIN_END - MID_BIN_START)) / 255;
+
+            // Treble: bins 16–31
+            let treble = 0;
+            for (let i = TREBLE_BIN_START; i < TREBLE_BIN_END; i++) treble += dataArray[i];
+            trebleEnergy = (treble / (TREBLE_BIN_END - TREBLE_BIN_START)) / 255;
+
+            overallAmplitude = (bassEnergy + midEnergy + trebleEnergy) / 3;
+        }
+
+        function updateMusicViz() {
+            const bars = document.querySelectorAll('#music-viz .viz-bar');
+            const step = Math.floor(dataArray.length / 8);
+            bars.forEach((bar, i) => {
+                const idx = Math.min(i * step, dataArray.length - 1);
+                const value = dataArray[idx] / 255;
+                bar.style.height = Math.max(4, value * 40) + 'px';
+            });
+        }
+
         // --- Game Logic & Loop ---
         function startGame() {
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('game-over-screen').classList.add('hidden');
             
+            // Stop audio from previous session
+            if (audioSource) {
+                try { audioSource.stop(); } catch(e) {}
+                audioSource = null;
+            }
+            musicReactiveMode = false;
+            document.getElementById('music-viz').classList.add('hidden');
+
             // Reset state
             score = 0;
             distance = 0;
@@ -360,6 +544,8 @@
             foxGroup.rotation.y = 0;
             isJumping = false;
             velocityY = 0;
+            beatCooldown = 0;
+            camera.position.set(0, 5, 8);
             updateScoreDisplay();
             
             // Clean up old objects
@@ -408,7 +594,13 @@
 
             if (isPlaying) {
                 // Weltgeschwindigkeit erhöhen
-                speed += 0.0001; 
+                if (musicReactiveMode) {
+                    updateAudioData();
+                    // Base speed progression + bass boost for "pumping" feel
+                    speed = Math.max(MIN_MUSIC_SPEED, speed + BASE_SPEED_INCREMENT + bassEnergy * BASS_SPEED_MULTIPLIER);
+                } else {
+                    speed += BASE_SPEED_INCREMENT;
+                }
                 distance += speed;
                 score += speed * 0.1;
                 
@@ -449,7 +641,36 @@
 
                 // Blume drehen
                 const flower = foxGroup.getObjectByName("flower");
-                if(flower) flower.rotation.y += 0.05;
+                if(flower) flower.rotation.y += 0.05 + (musicReactiveMode ? trebleEnergy * 0.5 : 0);
+
+                // Music reactive effects
+                if (musicReactiveMode) {
+                    // Background / fog color shift
+                    const targetColor = new THREE.Color().setHSL(
+                        0.55 - overallAmplitude * 0.35,
+                        0.5 + midEnergy * 0.5,
+                        0.6 + trebleEnergy * 0.1
+                    );
+                    scene.background.lerp(targetColor, 0.05);
+                    scene.fog.color.lerp(targetColor, 0.05);
+
+                    // Ambient light pulse
+                    ambientLight.intensity = 0.6 + bassEnergy * 0.6;
+
+                    // Camera shake on heavy bass beats
+                    if (bassEnergy > BASS_BEAT_THRESHOLD && beatCooldown === 0) {
+                        camera.position.x += (Math.random() - 0.5) * SHAKE_INTENSITY_X;
+                        camera.position.y += (Math.random() - 0.5) * SHAKE_INTENSITY_Y;
+                        beatCooldown = BEAT_COOLDOWN_FRAMES;
+                    }
+                    if (beatCooldown > 0) beatCooldown--;
+                    // Gradually return camera to base position to prevent drift
+                    camera.position.x += (0 - camera.position.x) * 0.1;
+                    camera.position.y += (5 - camera.position.y) * 0.1;
+
+                    // Update visualizer bars
+                    updateMusicViz();
+                }
 
                 // Bodenstreifen bewegen
                 groundSegments.forEach(stripe => {
