@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  crash-fuchs-app:
+    build: .
+    container_name: crash_fuchs_game
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    # Keine Netzwerkeinschränkungen hier erzwungen, läuft out-of-the-box in deinem Server-Stack.
