@@ -127,7 +127,7 @@
         let audioBuffer = null;
         let musicReactiveMode = false;
         let lastGameWasMusic = false;    // tracks whether last game used music mode
-        let musicPanelRestored = false;  // restore saved audio only once per session
+        let audioRestoredThisSession = false; // restore saved audio only once per session
 
         // Band energy values updated each frame
         let bassEnergy = 0;   // 20–250 Hz
@@ -228,8 +228,8 @@
             document.getElementById('music-mode-btn').addEventListener('click', () => {
                 const panel = document.getElementById('music-panel');
                 panel.classList.toggle('hidden');
-                if (!panel.classList.contains('hidden') && !musicPanelRestored) {
-                    musicPanelRestored = true;
+                if (!panel.classList.contains('hidden') && !audioRestoredThisSession) {
+                    audioRestoredThisSession = true;
                     restoreLastAudio();
                 }
             });
@@ -246,9 +246,9 @@
                 if (file) {
                     loadAudioFile(file);
                     // Persist file in IndexedDB so it can be restored next session
-                    const reader2 = new FileReader();
-                    reader2.onload = ev => saveAudioToIDB(ev.target.result, file.name);
-                    reader2.readAsArrayBuffer(file);
+                    const persistenceReader = new FileReader();
+                    persistenceReader.onload = ev => saveAudioToIDB(ev.target.result, file.name);
+                    persistenceReader.readAsArrayBuffer(file);
                     // Clear any saved URL so we don't conflict
                     localStorage.removeItem('crashfuchs_lastAudioUrl');
                 }
@@ -892,12 +892,14 @@
             local.splice(100); // keep top 100 locally
             localStorage.setItem('crashfuchs_highscores', JSON.stringify(local));
 
-            // Persist to server (best-effort)
+            // Persist to server (best-effort; works when served via Node.js backend)
             fetch('/api/highscores', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: entry.name, score: entry.score, mode: entry.mode })
-            }).catch(() => {}); // server may not be running (static file mode)
+            }).catch(err => {
+                console.warn('Could not sync score to server (saved locally):', err.message);
+            });
         }
 
         function loadHighscores() {
@@ -967,7 +969,7 @@
                 setupAudioContext();
                 // Load silently (user clicks Play to start)
                 fetch(savedUrl)
-                    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+                    .then(r => { if (!r.ok) throw new Error('Failed to load saved audio URL (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
                     .then(buf => audioContext.decodeAudioData(buf, buffer => {
                         audioBuffer = buffer;
                         document.getElementById('play-music-btn').disabled = false;

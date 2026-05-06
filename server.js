@@ -24,6 +24,7 @@ db.exec(`
         name       TEXT    NOT NULL,
         score      INTEGER NOT NULL,
         mode       TEXT    NOT NULL DEFAULT 'normal',
+        -- SQLite's 'now' is always UTC; the trailing 'Z' makes the format ISO-8601 compliant.
         created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     );
     CREATE INDEX IF NOT EXISTS idx_score ON highscores(score DESC);
@@ -64,6 +65,7 @@ app.get('/api/highscores', (req, res) => {
  * Body: { name: string, score: number, mode: string }
  */
 app.post('/api/highscores', (req, res) => {
+    // Must stay in sync with DIFFICULTY_SETTINGS / modeLabel in index.html
     const VALID_MODES = new Set(['normal', 'music-easy', 'music-normal', 'music-hard']);
 
     const rawName  = req.body && req.body.name;
@@ -74,8 +76,9 @@ app.post('/api/highscores', (req, res) => {
         return res.status(400).json({ error: 'Invalid payload: name (string) and score (number) are required.' });
     }
 
-    // Sanitise inputs
-    const name  = rawName.replace(/[<>&"'`]/g, '').trim().slice(0, 20) || 'Anonym';
+    // Sanitise: strip characters with HTML/template-literal significance; parameterised queries
+    // already prevent SQL injection, but belt-and-suspenders never hurts.
+    const name  = rawName.replace(/[<>&"'`|\\]/g, '').trim().slice(0, 20) || 'Anonym';
     const score = Math.max(0, Math.floor(rawScore));
     const mode  = VALID_MODES.has(rawMode) ? rawMode : 'normal';
 
