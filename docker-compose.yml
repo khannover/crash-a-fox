@@ -4,6 +4,8 @@ services:
   crash-fuchs-app:
     build: .
     container_name: crash_fuchs_game
+    environment:
+      BANCAMP_API_BASE_URL: ${BANCAMP_API_BASE_URL:-}
     ports:
       - "8080:3000"
     restart: unless-stopped

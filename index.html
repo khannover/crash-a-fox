@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Crash Fuchs</title>
+    <title>Crash Fox</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; }
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #2D4A1E; touch-action: none; }
         #game-canvas { display: block; width: 100vw; height: 100vh; }
         .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .interactive { pointer-events: auto; }
@@ -21,7 +21,7 @@
     <!-- UI Overlay -->
     <div id="ui" class="ui-layer flex flex-col justify-between p-6">
         <div class="flex justify-between items-start text-white drop-shadow-md font-bold text-2xl md:text-4xl" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">
-            <div>Punkte: <span id="score">0</span></div>
+            <div>Score: <span id="score">0</span></div>
         </div>
 
         <!-- Music Visualizer HUD -->
@@ -31,13 +31,13 @@
         <div id="start-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm z-10">
             <h1 class="text-5xl md:text-7xl font-extrabold text-yellow-400 mb-4 text-center drop-shadow-lg" style="-webkit-text-stroke: 2px #b45309;">CRASH FUCHS</h1>
             <p class="text-white text-lg md:text-2xl mb-8 text-center px-4 max-w-2xl">
-                Steuerung:<br>
-                ⬅️ ➡️ (Pfeiltasten oder A/D) zum Wechseln der Spur<br>
-                ⬆️ (Pfeil hoch, Leertaste oder W) zum Springen<br>
-                📱 Mobile: Wischen (Swipe) nach links/rechts/oben
+                Controls:<br>
+                ⬅️ ➡️ (Arrow keys or A/D) to switch lanes<br>
+                ⬆️ (Arrow up, Space or W) to jump<br>
+                📱 Mobile: Swipe left / right / up
             </p>
             <button id="start-btn" class="px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105 border-4 border-yellow-300">
-                Spiel Starten
+                Start Game
             </button>
             <button id="music-mode-btn" class="mt-4 px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105 border-4 border-yellow-300">
                 🎵 Music Mode
@@ -45,11 +45,11 @@
             <div id="music-panel" class="hidden mt-4 p-4 bg-gray-800/90 rounded-xl text-white w-full max-w-md">
                 <!-- Difficulty selector -->
                 <div class="mb-4">
-                    <label class="block mb-2 font-semibold">Schwierigkeit</label>
+                    <label class="block mb-2 font-semibold">Difficulty</label>
                     <div class="flex gap-2">
-                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="easy">🐢 Leicht</button>
+                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="easy">🐢 Easy</button>
                         <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="normal">🦊 Normal</button>
-                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="hard">🔥 Schwer</button>
+                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="hard">🔥 Hard</button>
                     </div>
                 </div>
                 <label for="audio-file" class="block mb-2 font-semibold">Upload MP3</label>
@@ -57,6 +57,19 @@
                 <p id="last-file-hint" class="hidden text-xs text-gray-400 mb-3"></p>
                 <label for="audio-url" class="block mb-2 font-semibold">or paste audio URL</label>
                 <input id="audio-url" type="text" placeholder="https://..." class="block w-full mb-4 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-sm">
+                <div id="bancamp-section" class="hidden mb-4 border border-gray-600 rounded-xl p-3 bg-black/20">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <label for="bancamp-track-select" class="font-semibold">or pick a Bancamp track</label>
+                        <button id="reload-bancamp-btn" type="button" class="px-3 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs font-bold transition">
+                            ↻ Reload
+                        </button>
+                    </div>
+                    <input id="bancamp-search" type="text" placeholder="Search track, artist, or album..." class="block w-full px-3 py-2 mb-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-sm">
+                    <p id="bancamp-status" class="text-xs text-gray-400 mb-2">Checking Bancamp signal feed...</p>
+                    <select id="bancamp-track-select" class="block w-full px-3 py-2 rounded-lg bg-gray-700 text-white text-sm disabled:opacity-50" disabled>
+                        <option value="">Choose a track…</option>
+                    </select>
+                </div>
                 <button id="play-music-btn" disabled class="w-full px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xl font-bold rounded-xl shadow-lg transition">
                     ▶ Play with Music
                 </button>
@@ -65,14 +78,14 @@
 
         <!-- Game Over Bildschirm -->
         <div id="game-over-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20 hidden overflow-y-auto py-6">
-            <h2 class="text-5xl md:text-7xl font-bold text-red-500 mb-2">AUA!</h2>
-            <p class="text-white text-2xl mb-4">Deine Punkte: <span id="final-score" class="text-yellow-400 font-bold">0</span></p>
+            <h2 class="text-5xl md:text-7xl font-bold text-red-500 mb-2">OUCH!</h2>
+            <p class="text-white text-2xl mb-4">Your score: <span id="final-score" class="text-yellow-400 font-bold">0</span></p>
 
             <!-- Highscore speichern -->
             <div id="save-score-form" class="flex gap-2 mb-4 w-full max-w-xs">
-                <input id="player-name" type="text" maxlength="20" placeholder="Dein Name…"
+                <input id="player-name" type="text" maxlength="20" placeholder="Your name…"
                     class="flex-1 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-base border border-gray-500 focus:outline-none focus:border-yellow-400">
-                <button id="save-score-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition" title="Score speichern">
+                <button id="save-score-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition" title="Save score">
                     💾
                 </button>
             </div>
@@ -85,10 +98,10 @@
 
             <div class="flex gap-4 mt-2">
                 <button id="restart-btn" class="px-6 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
-                    🔄 Nochmal
+                    🔄 Try Again
                 </button>
                 <button id="main-menu-btn" class="px-6 py-4 bg-gray-600 hover:bg-gray-500 text-white text-xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
-                    🏠 Menü
+                    🏠 Menu
                 </button>
             </div>
         </div>
@@ -100,7 +113,10 @@
         let foxGroup, foxBody, foxLegs = [];
         let obstacles = [];
         let collectibles = [];
+        let activeRows = new Map();
+        let rowSerial = 0;
         let groundSegments = [];
+        let trees = [];
         let animationId;
         let ambientLight;
         
@@ -128,6 +144,11 @@
         let musicReactiveMode = false;
         let lastGameWasMusic = false;    // tracks whether last game used music mode
         let audioRestoredThisSession = false; // restore saved audio only once per session
+        let activeAudioLoadToken = 0;
+        let bancampEnabled = false;
+        let bancampTracksLoaded = false;
+        let bancampTracks = [];
+        let bancampFilteredTracks = [];
 
         // Band energy values updated each frame
         let bassEnergy = 0;   // 20–250 Hz
@@ -160,14 +181,16 @@
         const SHAKE_INTENSITY_X = 0.3;
         const SHAKE_INTENSITY_Y = 0.15;
 
+        const LAST_AUDIO_URL_KEY = 'crashfuchs_lastAudioUrl';
+
         // --- Initialisierung ---
         function init() {
             const container = document.getElementById('game-container');
 
             // Szene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87CEEB); // Himmelblau
-            scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Nebel für Tiefeneffekt
+            scene.background = new THREE.Color(0x3A6B28); // Waldgrün
+            scene.fog = new THREE.Fog(0x2D4A1E, 18, 80);  // dichter Waldnebel
 
             // Kamera (Hinter dem Fuchs platziert)
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
@@ -195,6 +218,7 @@
 
             // Welt aufbauen
             createGround();
+            createTrees();
             createFox();
 
             // Event Listeners für Resize
@@ -228,6 +252,9 @@
             document.getElementById('music-mode-btn').addEventListener('click', () => {
                 const panel = document.getElementById('music-panel');
                 panel.classList.toggle('hidden');
+                if (!panel.classList.contains('hidden')) {
+                    ensureBancampTracksLoaded();
+                }
                 if (!panel.classList.contains('hidden') && !audioRestoredThisSession) {
                     audioRestoredThisSession = true;
                     restoreLastAudio();
@@ -250,7 +277,8 @@
                     persistenceReader.onload = ev => saveAudioToIDB(ev.target.result, file.name);
                     persistenceReader.readAsArrayBuffer(file);
                     // Clear any saved URL so we don't conflict
-                    localStorage.removeItem('crashfuchs_lastAudioUrl');
+                    localStorage.removeItem(LAST_AUDIO_URL_KEY);
+                    resetBancampSelection();
                 }
             });
 
@@ -258,10 +286,31 @@
                 const url = e.target.value.trim();
                 if (url) {
                     loadAudioURL(url);
-                    localStorage.setItem('crashfuchs_lastAudioUrl', url);
+                    localStorage.setItem(LAST_AUDIO_URL_KEY, url);
                     // Clear saved file so URL takes precedence next session
                     clearAudioFromIDB();
+                    resetBancampSelection();
                 }
+            });
+
+            document.getElementById('reload-bancamp-btn').addEventListener('click', () => {
+                loadBancampTracks();
+            });
+
+            document.getElementById('bancamp-search').addEventListener('input', () => {
+                applyBancampFilter();
+            });
+
+            document.getElementById('bancamp-track-select').addEventListener('change', (e) => {
+                const track = bancampFilteredTracks.find(item => item.filename === e.target.value)
+                    || bancampTracks.find(item => item.filename === e.target.value);
+                if (!track) {
+                    return;
+                }
+                document.getElementById('audio-url').value = '';
+                localStorage.removeItem(LAST_AUDIO_URL_KEY);
+                clearAudioFromIDB();
+                loadBancampTrack(track);
             });
 
             document.getElementById('play-music-btn').addEventListener('click', () => {
@@ -283,136 +332,235 @@
             // Steuerung einrichten
             setupControls();
 
+            fetchAppConfig();
+
             // Erster Render-Durchlauf (damit man was im Hintergrund sieht)
             renderer.render(scene, camera);
         }
 
         // --- Welt & Objekte ---
         function createGround() {
-            // Eine einfache Straße mit Gras an den Seiten
-            const grassMat = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
-            const roadMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Braun/Erdig wie in Crash
-            
-            // Langer Boden
-            const groundGeo = new THREE.PlaneGeometry(50, 200);
-            const ground = new THREE.Mesh(groundGeo, grassMat);
-            ground.rotation.x = -Math.PI / 2;
-            ground.position.z = -50;
-            ground.receiveShadow = true;
-            scene.add(ground);
+            // Moosiger Waldboden
+            const forestFloorMat = new THREE.MeshLambertMaterial({ color: 0x2E5E1A });
+            const floorGeo = new THREE.PlaneGeometry(80, 300);
+            const floor = new THREE.Mesh(floorGeo, forestFloorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.z = -80;
+            floor.receiveShadow = true;
+            scene.add(floor);
 
-            // Straße
-            const roadGeo = new THREE.PlaneGeometry(9, 200);
-            const road = new THREE.Mesh(roadGeo, roadMat);
-            road.rotation.x = -Math.PI / 2;
-            road.position.y = 0.01; // Leicht über dem Gras
-            road.position.z = -50;
-            road.receiveShadow = true;
-            scene.add(road);
+            // Schmaler Erdpfad (Waldweg)
+            const pathMat = new THREE.MeshLambertMaterial({ color: 0x5C3A1A });
+            const pathGeo = new THREE.PlaneGeometry(9, 300);
+            const path = new THREE.Mesh(pathGeo, pathMat);
+            path.rotation.x = -Math.PI / 2;
+            path.position.set(0, 0.01, -80);
+            path.receiveShadow = true;
+            scene.add(path);
 
-            // Bewegliche Streifen auf der Straße für Geschwindigkeitsgefühl
-            for(let i=0; i<10; i++) {
-                const stripeGeo = new THREE.PlaneGeometry(0.5, 4);
-                const stripeMat = new THREE.MeshBasicMaterial({ color: 0xdeb887 });
-                const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-                stripe.rotation.x = -Math.PI / 2;
-                stripe.position.set(0, 0.02, -i * 10);
-                scene.add(stripe);
-                groundSegments.push(stripe);
+            // Wegrand links/rechts (helleres Erdband)
+            const edgeMat = new THREE.MeshLambertMaterial({ color: 0x7A5230 });
+            [-5, 5].forEach(ex => {
+                const edgeGeo = new THREE.PlaneGeometry(0.6, 300);
+                const edge = new THREE.Mesh(edgeGeo, edgeMat);
+                edge.rotation.x = -Math.PI / 2;
+                edge.position.set(ex, 0.015, -80);
+                scene.add(edge);
+            });
+
+            // Scrollende Wurzel-/Blattmarkierungen für Geschwindigkeitsgefühl
+            const rootMat = new THREE.MeshBasicMaterial({ color: 0x3D2008 });
+            for (let i = 0; i < 12; i++) {
+                // kurzes unregelmäßiges Wurzelsegment quer über den Weg
+                const rw = 5.5 + Math.random() * 2.5;
+                const geo = new THREE.PlaneGeometry(rw, 0.18);
+                const mesh = new THREE.Mesh(geo, rootMat);
+                mesh.rotation.x = -Math.PI / 2;
+                mesh.position.set((Math.random() - 0.5) * 2, 0.02, -i * 8);
+                scene.add(mesh);
+                groundSegments.push(mesh);
             }
+        }
+
+        function createPineTree(x, z) {
+            const group = new THREE.Group();
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3D1F00 });
+            const foliageMat = new THREE.MeshLambertMaterial({ color: 0x1A4A0A });
+            const foliageMat2 = new THREE.MeshLambertMaterial({ color: 0x255C0F });
+
+            // Trunk
+            const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 1.4, 6);
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 0.7;
+            group.add(trunk);
+
+            // Three cone tiers (bottom to top, each slightly smaller and raised)
+            const tiers = [
+                { r: 1.5, h: 2.2, y: 1.8, mat: foliageMat },
+                { r: 1.1, h: 1.9, y: 3.1, mat: foliageMat2 },
+                { r: 0.7, h: 1.6, y: 4.1, mat: foliageMat },
+            ];
+            tiers.forEach(t => {
+                const geo = new THREE.ConeGeometry(t.r, t.h, 7);
+                const mesh = new THREE.Mesh(geo, t.mat);
+                mesh.position.y = t.y;
+                group.add(mesh);
+            });
+
+            group.position.set(x, 0, z);
+            group.castShadow = true;
+            scene.add(group);
+            trees.push(group);
+        }
+
+        function createTrees() {
+            // Two columns of pines on each side; stagger depth every 14 units
+            const TREE_SPACING = 14;
+            const TREE_COUNT = 16;
+            const offsets = [
+                { x: -9,  jitter: 1.2 },
+                { x: -14, jitter: 2.0 },
+                { x:  9,  jitter: 1.2 },
+                { x:  14, jitter: 2.0 },
+            ];
+            offsets.forEach(col => {
+                for (let i = 0; i < TREE_COUNT; i++) {
+                    const jx = (Math.random() - 0.5) * col.jitter;
+                    const jz = (Math.random() - 0.5) * 4;
+                    createPineTree(col.x + jx, -i * TREE_SPACING + jz);
+                }
+            });
         }
 
         function createFox() {
             foxGroup = new THREE.Group();
+            foxLegs = [];
 
-            const foxColor = 0xFFCC00; // Gelber Fuchs
-            const mat = new THREE.MeshLambertMaterial({ color: foxColor });
-            const darkMat = new THREE.MeshLambertMaterial({ color: 0x333333 }); // Nase/Augen
+            const orangeMat = new THREE.MeshLambertMaterial({ color: 0xCC4A00 });
+            const creamMat  = new THREE.MeshLambertMaterial({ color: 0xFAEED5 });
+            const darkMat   = new THREE.MeshLambertMaterial({ color: 0x1A0800 });
+            const pinkMat   = new THREE.MeshLambertMaterial({ color: 0xFFAAA0 });
 
-            // Körper
-            const bodyGeo = new THREE.BoxGeometry(1.2, 1, 2);
-            foxBody = new THREE.Mesh(bodyGeo, mat);
-            foxBody.position.y = 0.5;
-            foxBody.castShadow = true;
-            foxGroup.add(foxBody);
-
-            // Kopf
-            const headGeo = new THREE.BoxGeometry(1, 1, 1.2);
-            const head = new THREE.Mesh(headGeo, mat);
-            head.position.set(0, 1.2, -0.8);
-            head.castShadow = true;
-            foxGroup.add(head);
-
-            // Schnauze
-            const snoutGeo = new THREE.BoxGeometry(0.6, 0.4, 0.8);
-            const snout = new THREE.Mesh(snoutGeo, mat);
-            snout.position.set(0, 0.9, -1.6);
-            foxGroup.add(snout);
-
-            // Nase
-            const noseGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-            const nose = new THREE.Mesh(noseGeo, darkMat);
-            nose.position.set(0, 1.0, -2.0);
-            foxGroup.add(nose);
-
-            // Ohren
-            const earGeo = new THREE.ConeGeometry(0.3, 0.6, 4);
-            const earL = new THREE.Mesh(earGeo, mat);
-            earL.position.set(-0.4, 1.8, -0.5);
-            foxGroup.add(earL);
-            const earR = new THREE.Mesh(earGeo, mat);
-            earR.position.set(0.4, 1.8, -0.5);
-            foxGroup.add(earR);
-
-            // Gelbe Blume auf dem Kopf!
-            const flowerGroup = new THREE.Group();
-            
-            // Stiel
-            const stemGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.6);
-            const stemMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-            const stem = new THREE.Mesh(stemGeo, stemMat);
-            stem.position.y = 0.3;
-            flowerGroup.add(stem);
-
-            // Mitte der Blume
-            const centerGeo = new THREE.SphereGeometry(0.15);
-            const centerMat = new THREE.MeshLambertMaterial({ color: 0xFF8C00 }); // Orange Mitte
-            const center = new THREE.Mesh(centerGeo, centerMat);
-            center.position.y = 0.6;
-            flowerGroup.add(center);
-
-            // Blütenblätter (Gelb)
-            const petalMat = new THREE.MeshLambertMaterial({ color: 0xFFFF00 });
-            for(let i=0; i<5; i++) {
-                const petalGeo = new THREE.SphereGeometry(0.12);
-                const petal = new THREE.Mesh(petalGeo, petalMat);
-                const angle = (i / 5) * Math.PI * 2;
-                petal.position.set(Math.cos(angle)*0.2, 0.6, Math.sin(angle)*0.2);
-                flowerGroup.add(petal);
-            }
-
-            flowerGroup.position.set(0, 1.7, -0.8);
-            // Blume leicht rotieren lassen im Render-Loop (siehe animate)
-            flowerGroup.name = "flower";
-            foxGroup.add(flowerGroup);
-
-            // Beine
-            for(let i=0; i<4; i++) {
-                const legGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
-                const leg = new THREE.Mesh(legGeo, mat);
-                const isFront = i < 2;
-                const isLeft = i % 2 === 0;
-                leg.position.set(isLeft ? -0.5 : 0.5, 0.4, isFront ? -0.5 : 0.5);
+            // Legs — center at group y=0; bottom reaches world y=0 when foxGroup.y=FLOOR_Y=0.5
+            const legXZ = [[-0.32, -0.42], [0.32, -0.42], [-0.32, 0.42], [0.32, 0.42]];
+            legXZ.forEach(([lx, lz]) => {
+                const legGeo = new THREE.BoxGeometry(0.22, 1.0, 0.22);
+                const leg = new THREE.Mesh(legGeo, orangeMat);
+                leg.position.set(lx, 0.0, lz);
                 leg.castShadow = true;
                 foxGroup.add(leg);
                 foxLegs.push(leg);
+            });
+
+            // Torso
+            const torsoGeo = new THREE.BoxGeometry(0.85, 0.7, 1.5);
+            foxBody = new THREE.Mesh(torsoGeo, orangeMat);
+            foxBody.position.set(0, 0.85, 0);
+            foxBody.castShadow = true;
+            foxGroup.add(foxBody);
+
+            // Cream belly
+            const bellyGeo = new THREE.BoxGeometry(0.55, 0.5, 1.3);
+            const belly = new THREE.Mesh(bellyGeo, creamMat);
+            belly.position.set(0, 0.82, 0.05);
+            foxGroup.add(belly);
+
+            // Neck
+            const neckGeo = new THREE.BoxGeometry(0.42, 0.38, 0.42);
+            const neck = new THREE.Mesh(neckGeo, orangeMat);
+            neck.position.set(0, 1.35, -0.45);
+            foxGroup.add(neck);
+
+            // Head
+            const headGeo = new THREE.BoxGeometry(0.8, 0.75, 0.85);
+            const headMesh = new THREE.Mesh(headGeo, orangeMat);
+            headMesh.position.set(0, 1.8, -0.75);
+            headMesh.castShadow = true;
+            foxGroup.add(headMesh);
+
+            // Snout (cream, forward-pointing)
+            const snoutGeo = new THREE.BoxGeometry(0.45, 0.3, 0.52);
+            const snout = new THREE.Mesh(snoutGeo, creamMat);
+            snout.position.set(0, 1.65, -1.22);
+            foxGroup.add(snout);
+
+            // Nose
+            const noseGeo = new THREE.SphereGeometry(0.09, 8, 8);
+            const nose = new THREE.Mesh(noseGeo, darkMat);
+            nose.position.set(0, 1.72, -1.47);
+            foxGroup.add(nose);
+
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.07, 8, 8);
+            [-0.25, 0.25].forEach(ex => {
+                const eye = new THREE.Mesh(eyeGeo, darkMat);
+                eye.position.set(ex, 1.92, -1.12);
+                foxGroup.add(eye);
+            });
+
+            // Ears (tall, pointy with pink inner)
+            const earOuterGeo = new THREE.ConeGeometry(0.18, 0.55, 4);
+            const earInnerGeo = new THREE.ConeGeometry(0.09, 0.30, 4);
+            [-0.28, 0.28].forEach(ex => {
+                const earO = new THREE.Mesh(earOuterGeo, orangeMat);
+                earO.position.set(ex, 2.38, -0.62);
+                foxGroup.add(earO);
+                const earI = new THREE.Mesh(earInnerGeo, pinkMat);
+                earI.position.set(ex, 2.38, -0.62);
+                foxGroup.add(earI);
+            });
+
+            // Blume auf dem Kopf
+            const flowerGroup = new THREE.Group();
+            flowerGroup.name = "flower";
+            const stemMat2 = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            const stemGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 6);
+            const stem = new THREE.Mesh(stemGeo, stemMat2);
+            stem.position.y = 0.25;
+            flowerGroup.add(stem);
+            const centerMat = new THREE.MeshLambertMaterial({ color: 0xFF8C00 });
+            const centerGeo = new THREE.SphereGeometry(0.12, 8, 8);
+            const flowerCenter = new THREE.Mesh(centerGeo, centerMat);
+            flowerCenter.position.y = 0.55;
+            flowerGroup.add(flowerCenter);
+            const petalMat = new THREE.MeshLambertMaterial({ color: 0xFFEE00 });
+            for (let i = 0; i < 6; i++) {
+                const petalGeo = new THREE.SphereGeometry(0.10, 6, 6);
+                const petal = new THREE.Mesh(petalGeo, petalMat);
+                const angle = (i / 6) * Math.PI * 2;
+                petal.position.set(Math.cos(angle) * 0.19, 0.55, Math.sin(angle) * 0.19);
+                flowerGroup.add(petal);
             }
+            flowerGroup.position.set(0, 2.18, -0.75); // top of head
+            foxGroup.add(flowerGroup);
+
+            // Tail (bushy, arched upward behind body)
+            const tailGroup = new THREE.Group();
+            tailGroup.name = "tail";
+            const tailDefs = [
+                { r1: 0.28, r2: 0.22, h: 0.6, rx: -0.5, y: 0.00, z: 0.00 },
+                { r1: 0.22, r2: 0.16, h: 0.6, rx: -1.0, y: 0.32, z: 0.42 },
+                { r1: 0.16, r2: 0.10, h: 0.5, rx: -1.5, y: 0.60, z: 0.80 },
+            ];
+            tailDefs.forEach((d, i) => {
+                const geo = new THREE.CylinderGeometry(d.r1, d.r2, d.h, 8);
+                const mesh = new THREE.Mesh(geo, i === tailDefs.length - 1 ? creamMat : orangeMat);
+                mesh.rotation.x = d.rx;
+                mesh.position.set(0, d.y, d.z);
+                tailGroup.add(mesh);
+            });
+            const tipGeo = new THREE.SphereGeometry(0.22, 8, 8);
+            const tip = new THREE.Mesh(tipGeo, creamMat);
+            tip.position.set(0, 0.82, 1.02);
+            tailGroup.add(tip);
+            tailGroup.position.set(0, 0.72, 0.75);
+            foxGroup.add(tailGroup);
 
             foxGroup.position.set(0, FLOOR_Y, 0);
             scene.add(foxGroup);
         }
 
-        function createObstacle(zPos, lane) {
+        function createObstacle(zPos, lane, rowId) {
             // Typische "Crash" Holzkiste
             const boxGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
             // Einfaches Kreuz-Muster andeuten durch Farbe
@@ -432,12 +580,13 @@
             borderBottom.position.y = -0.65;
             box.add(borderTop);
             box.add(borderBottom);
+            box.userData.rowId = rowId;
 
             scene.add(box);
             obstacles.push(box);
         }
 
-        function createCollectible(zPos, lane) {
+        function createCollectible(zPos, lane, rowId) {
             // Wumpa-Frucht ähnlich (Roter Apfel)
             const fruitGeo = new THREE.SphereGeometry(0.5, 16, 16);
             const fruitMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
@@ -453,9 +602,33 @@
             leaf.position.y = 0.5;
             leaf.rotation.z = 0.5;
             fruit.add(leaf);
+            fruit.userData.rowId = rowId;
 
             scene.add(fruit);
             collectibles.push({ mesh: fruit, type: 'apple' });
+        }
+
+        function getNextSpawnZ() {
+            if (activeRows.size === 0) {
+                return -20;
+            }
+            let farthestZ = Infinity;
+            activeRows.forEach(row => {
+                farthestZ = Math.min(farthestZ, row.z);
+            });
+            return farthestZ - 20;
+        }
+
+        function clearRowMember(rowId) {
+            if (!rowId || !activeRows.has(rowId)) {
+                return;
+            }
+            const row = activeRows.get(rowId);
+            row.remaining -= 1;
+            if (row.remaining <= 0) {
+                activeRows.delete(rowId);
+                spawnRandomRow(getNextSpawnZ());
+            }
         }
 
         // --- Steuerung ---
@@ -519,47 +692,210 @@
             dataArray = new Uint8Array(analyser.frequencyBinCount);
         }
 
+        function setPlayButtonEnabled(enabled) {
+            document.getElementById('play-music-btn').disabled = !enabled;
+        }
+
+        function beginAudioLoad() {
+            activeAudioLoadToken += 1;
+            audioBuffer = null;
+            setPlayButtonEnabled(false);
+            return activeAudioLoadToken;
+        }
+
+        function finishAudioLoad(loadToken, buffer) {
+            if (loadToken !== activeAudioLoadToken) {
+                return false;
+            }
+            audioBuffer = buffer;
+            setPlayButtonEnabled(true);
+            return true;
+        }
+
+        function decodeAudioFromArrayBuffer(arrayBuffer) {
+            setupAudioContext();
+            return new Promise((resolve, reject) => {
+                audioContext.decodeAudioData(
+                    arrayBuffer.slice(0),
+                    resolve,
+                    reject
+                );
+            });
+        }
+
+        function setBancampStatus(message, isError = false) {
+            const statusEl = document.getElementById('bancamp-status');
+            statusEl.textContent = message;
+            statusEl.className = isError ? 'text-xs text-red-300 mb-2' : 'text-xs text-gray-400 mb-2';
+        }
+
+        function resetBancampSelection() {
+            const selectEl = document.getElementById('bancamp-track-select');
+            if (selectEl) {
+                selectEl.value = '';
+            }
+        }
+
+        function renderBancampTracks() {
+            const selectEl = document.getElementById('bancamp-track-select');
+            selectEl.innerHTML = '<option value="">Track wählen…</option>';
+
+            bancampFilteredTracks.forEach(track => {
+                const option = document.createElement('option');
+                const artist = (track.artist || 'Unknown Artist').trim();
+                const title = (track.title || track.filename || 'Untitled').trim();
+                const album = (track.album || '').trim();
+                option.value = track.filename;
+                option.textContent = album ? `${artist} - ${title} (${album})` : `${artist} - ${title}`;
+                selectEl.appendChild(option);
+            });
+
+            selectEl.disabled = bancampFilteredTracks.length === 0;
+        }
+
+        function applyBancampFilter() {
+            const query = (document.getElementById('bancamp-search').value || '').trim().toLowerCase();
+            if (!query) {
+                bancampFilteredTracks = bancampTracks.slice();
+            } else {
+                bancampFilteredTracks = bancampTracks.filter(track => {
+                    const haystack = [track.title, track.artist, track.album]
+                        .filter(Boolean)
+                        .join(' ')
+                        .toLowerCase();
+                    return haystack.includes(query);
+                });
+            }
+
+            renderBancampTracks();
+
+            if (!bancampTracks.length) {
+                setBancampStatus('No Bancamp tracks available right now.');
+                return;
+            }
+
+            if (!query) {
+                setBancampStatus(`Loaded ${bancampTracks.length} Bancamp track${bancampTracks.length === 1 ? '' : 's'}.`);
+                return;
+            }
+
+            setBancampStatus(`Found ${bancampFilteredTracks.length} match${bancampFilteredTracks.length === 1 ? '' : 'es'} for "${query}".`);
+        }
+
+        async function fetchAppConfig() {
+            try {
+                const response = await fetch('/api/config', { cache: 'no-store' });
+                if (!response.ok) throw new Error('Config request failed');
+                const config = await response.json();
+                bancampEnabled = Boolean(config && config.bancamp && config.bancamp.enabled);
+            } catch (err) {
+                bancampEnabled = false;
+            }
+
+            const section = document.getElementById('bancamp-section');
+            if (bancampEnabled) {
+                section.classList.remove('hidden');
+                setBancampStatus('Bancamp feed ready. Load a track from the archive.');
+            } else {
+                section.classList.add('hidden');
+            }
+        }
+
+        async function ensureBancampTracksLoaded() {
+            if (!bancampEnabled || bancampTracksLoaded) {
+                return;
+            }
+            await loadBancampTracks();
+        }
+
+        async function loadBancampTracks() {
+            if (!bancampEnabled) {
+                return;
+            }
+
+            const selectEl = document.getElementById('bancamp-track-select');
+            selectEl.disabled = true;
+            setBancampStatus('Loading Bancamp tracks...');
+
+            try {
+                const response = await fetch('/api/bancamp/tracks', { cache: 'no-store' });
+                if (!response.ok) throw new Error('Track request failed');
+                const payload = await response.json();
+                bancampTracks = Array.isArray(payload)
+                    ? payload.filter(track => track && track.filename)
+                    : [];
+                bancampFilteredTracks = bancampTracks.slice();
+                bancampTracksLoaded = true;
+                applyBancampFilter();
+            } catch (err) {
+                bancampTracksLoaded = false;
+                bancampTracks = [];
+                bancampFilteredTracks = [];
+                renderBancampTracks();
+                setBancampStatus('Bancamp feed unavailable. Check the configured API base URL.', true);
+            }
+        }
+
+        async function loadBancampTrack(track) {
+            if (!track || !track.filename) {
+                return;
+            }
+
+            const label = `${track.artist || 'Unknown Artist'} - ${track.title || track.filename}`;
+            setBancampStatus(`Loading ${label}...`);
+            const ok = await loadAudioURL(`/api/bancamp/stream/${encodeURIComponent(track.filename)}`, {
+                failureMessage: `Could not load ${label} from Bancamp.`,
+                suppressAlert: true
+            });
+            if (ok) {
+                setBancampStatus(`Ready: ${label}`);
+            } else {
+                setBancampStatus(`Failed to load ${label}.`, true);
+            }
+        }
+
         function loadAudioFile(file) {
             setupAudioContext();
+            const loadToken = beginAudioLoad();
             const reader = new FileReader();
-            reader.onload = function(e) {
-                audioContext.decodeAudioData(
-                    e.target.result,
-                    function(buffer) {
-                        audioBuffer = buffer;
-                        document.getElementById('play-music-btn').disabled = false;
-                    },
-                    function() {
+            reader.onload = async function(e) {
+                try {
+                    const decoded = await decodeAudioFromArrayBuffer(e.target.result);
+                    finishAudioLoad(loadToken, decoded);
+                } catch (err) {
+                    if (loadToken === activeAudioLoadToken) {
                         alert('Could not decode audio file. Please try a different MP3.');
                     }
-                );
+                }
             };
             reader.readAsArrayBuffer(file);
         }
 
-        function loadAudioURL(url) {
+        async function loadAudioURL(url, options = {}) {
+            const failureMessage = options.failureMessage || 'Could not load audio from URL.';
+            const suppressAlert = Boolean(options.suppressAlert);
             setupAudioContext();
-            fetch(url)
-                .then(r => {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.arrayBuffer();
-                })
-                .then(buf => audioContext.decodeAudioData(
-                    buf,
-                    buffer => {
-                        audioBuffer = buffer;
-                        document.getElementById('play-music-btn').disabled = false;
-                    },
-                    () => {
+            const loadToken = beginAudioLoad();
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                const buffer = await response.arrayBuffer();
+                const decoded = await decodeAudioFromArrayBuffer(buffer);
+                return finishAudioLoad(loadToken, decoded);
+            } catch (err) {
+                if (loadToken !== activeAudioLoadToken) {
+                    return false;
+                }
+                if (!suppressAlert) {
+                    if (err.message && err.message.startsWith('HTTP ')) {
+                        alert(`${failureMessage} (${err.message})`);
+                    } else {
                         alert('Could not decode audio from URL. The file may not be a supported audio format.');
                     }
-                ))
-                .catch(err => {
-                    if (err.message && err.message.startsWith('HTTP ')) {
-                        alert('Could not load audio from URL (' + err.message + '). Check the URL and ensure the server allows cross-origin requests.');
-                    }
-                    // decode errors are already handled above
-                });
+                }
+                return false;
+            }
         }
 
         function startMusic() {
@@ -639,6 +975,8 @@
             collectibles.forEach(c => scene.remove(c.mesh));
             obstacles = [];
             collectibles = [];
+            activeRows.clear();
+            rowSerial = 0;
 
             // Generate initial level ahead
             for(let i=1; i<=10; i++) spawnRandomRow(-i * 20);
@@ -650,19 +988,26 @@
         function spawnRandomRow(zPos) {
             const rowType = Math.random();
             const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+            const rowId = `row-${++rowSerial}`;
+            let memberCount = 0;
 
             if (rowType < 0.6) {
                 // Nur Kiste
-                createObstacle(zPos, lane);
+                createObstacle(zPos, lane, rowId);
+                memberCount = 1;
             } else if (rowType < 0.8) {
                 // Kiste und Apfel auf einer anderen Spur
-                createObstacle(zPos, lane);
+                createObstacle(zPos, lane, rowId);
                 let appleLane = lane === 0 ? (Math.random() > 0.5 ? 1 : -1) : 0;
-                createCollectible(zPos, appleLane);
+                createCollectible(zPos, appleLane, rowId);
+                memberCount = 2;
             } else {
                 // Nur Apfel (einfacher Punkt)
-                createCollectible(zPos, lane);
+                createCollectible(zPos, lane, rowId);
+                memberCount = 1;
             }
+
+            activeRows.set(rowId, { z: zPos, remaining: memberCount });
         }
 
         function gameOver() {
@@ -742,7 +1087,7 @@
                 // Lauf-Animation (Beine wackeln, Körper wippt)
                 runTime += speed * 2;
                 if(!isJumping) {
-                    foxBody.position.y = 0.5 + Math.abs(Math.sin(runTime * 2)) * 0.1;
+                    foxBody.position.y = 0.85 + Math.abs(Math.sin(runTime * 2)) * 0.05;
                     foxLegs[0].rotation.x = Math.sin(runTime * 2) * 0.5;
                     foxLegs[1].rotation.x = -Math.sin(runTime * 2) * 0.5;
                     foxLegs[2].rotation.x = -Math.sin(runTime * 2) * 0.5;
@@ -752,9 +1097,11 @@
                     foxLegs.forEach(leg => leg.rotation.x = 0.2);
                 }
 
-                // Blume drehen
+                // Schwanz wedeln + Blume drehen
+                const tail = foxGroup.getObjectByName("tail");
+                if (tail) tail.rotation.z = Math.sin(runTime * 4) * 0.25 + (musicReactiveMode ? trebleEnergy * 0.4 : 0);
                 const flower = foxGroup.getObjectByName("flower");
-                if(flower) flower.rotation.y += 0.05 + (musicReactiveMode ? trebleEnergy * 0.5 : 0);
+                if (flower) flower.rotation.y += 0.04 + (musicReactiveMode ? trebleEnergy * 0.5 : 0);
 
                 // Music reactive effects
                 if (musicReactiveMode) {
@@ -788,7 +1135,13 @@
                 // Bodenstreifen bewegen
                 groundSegments.forEach(stripe => {
                     stripe.position.z += speed;
-                    if (stripe.position.z > 10) stripe.position.z -= 100;
+                    if (stripe.position.z > 10) stripe.position.z -= 96;
+                });
+
+                // Bäume scrollen
+                trees.forEach(tree => {
+                    tree.position.z += speed;
+                    if (tree.position.z > 12) tree.position.z -= 16 * 14; // wrap over full column depth
                 });
 
                 // Hindernisse bewegen & Kollision prüfen
@@ -808,9 +1161,10 @@
 
                     // Entfernen und neu spawnen wenn hinter Kamera
                     if (obs.position.z > 10) {
+                        const rowId = obs.userData && obs.userData.rowId;
                         scene.remove(obs);
                         obstacles.splice(i, 1);
-                        spawnRandomRow(-100);
+                        clearRowMember(rowId);
                     }
                 }
 
@@ -828,11 +1182,15 @@
                         // Eingesammelt!
                         score += 50;
                         updateScoreDisplay();
+                        const rowId = col.mesh.userData && col.mesh.userData.rowId;
                         scene.remove(col.mesh);
                         collectibles.splice(i, 1);
+                        clearRowMember(rowId);
                     } else if (col.mesh.position.z > 10) {
+                        const rowId = col.mesh.userData && col.mesh.userData.rowId;
                         scene.remove(col.mesh);
                         collectibles.splice(i, 1);
+                        clearRowMember(rowId);
                     }
                 }
             }
@@ -963,7 +1321,7 @@
 
         function restoreLastAudio() {
             // Priority 1: saved URL
-            const savedUrl = localStorage.getItem('crashfuchs_lastAudioUrl');
+            const savedUrl = localStorage.getItem(LAST_AUDIO_URL_KEY);
             if (savedUrl) {
                 document.getElementById('audio-url').value = savedUrl;
                 setupAudioContext();
@@ -976,7 +1334,7 @@
                     }))
                     .catch(() => {
                         // URL no longer valid – clear and try IDB
-                        localStorage.removeItem('crashfuchs_lastAudioUrl');
+                        localStorage.removeItem(LAST_AUDIO_URL_KEY);
                         document.getElementById('audio-url').value = '';
                         tryRestoreFromIDB();
                     });
@@ -999,7 +1357,7 @@
                         audioBuffer = buffer;
                         document.getElementById('play-music-btn').disabled = false;
                         const hint = document.getElementById('last-file-hint');
-                        hint.textContent = '↩ Letztes File: ' + record.name;
+                        hint.textContent = '↩ Last file: ' + record.name;
                         hint.classList.remove('hidden');
                     });
                 };

@@ -8,6 +8,7 @@ const fs = require('fs');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH  = path.join(DATA_DIR, 'highscores.db');
 const PORT     = parseInt(process.env.PORT, 10) || 3000;
+const BANCAMP_API_BASE_URL = (process.env.BANCAMP_API_BASE_URL || '').trim().replace(/\/+$/, '');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -45,6 +46,99 @@ app.use(express.json({ limit: '10kb' }));
 
 // Serve the game as a static file
 app.use(express.static(path.join(__dirname), { index: 'index.html' }));
+
+function getBancampBaseUrl() {
+    return BANCAMP_API_BASE_URL;
+}
+
+function getBancampUrl(pathname) {
+    const baseUrl = getBancampBaseUrl();
+    if (!baseUrl) {
+        return null;
+    }
+    return `${baseUrl}${pathname}`;
+}
+
+async function fetchBancamp(pathname) {
+    const url = getBancampUrl(pathname);
+    if (!url) {
+        const error = new Error('Bancamp API base URL is not configured.');
+        error.statusCode = 503;
+        throw error;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'Accept': 'application/json, audio/*;q=0.9, */*;q=0.8'
+            },
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Bancamp upstream responded with ${response.status}`);
+            error.statusCode = response.status >= 500 ? 502 : response.status;
+            throw error;
+        }
+
+        return response;
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            const timeoutError = new Error('Bancamp upstream request timed out.');
+            timeoutError.statusCode = 504;
+            throw timeoutError;
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+app.get('/api/config', (_req, res) => {
+    res.json({
+        bancamp: {
+            enabled: Boolean(getBancampBaseUrl()),
+            configured: Boolean(getBancampBaseUrl())
+        }
+    });
+});
+
+app.get('/api/bancamp/tracks', async (_req, res) => {
+    try {
+        const response = await fetchBancamp('/api/tracks');
+        const payload = await response.json();
+        res.json(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+        console.error('GET /api/bancamp/tracks error:', err);
+        res.status(err.statusCode || 502).json({ error: err.message || 'Bancamp proxy error' });
+    }
+});
+
+app.get('/api/bancamp/stream/:filename', async (req, res) => {
+    const filename = req.params.filename;
+    if (!filename) {
+        return res.status(400).json({ error: 'Missing filename' });
+    }
+
+    try {
+        const response = await fetchBancamp(`/music/${encodeURIComponent(filename)}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const contentType = response.headers.get('content-type') || 'application/octet-stream';
+        const cacheControl = response.headers.get('cache-control');
+
+        res.setHeader('Content-Type', contentType);
+        if (cacheControl) {
+            res.setHeader('Cache-Control', cacheControl);
+        }
+        res.send(Buffer.from(arrayBuffer));
+    } catch (err) {
+        console.error('GET /api/bancamp/stream/:filename error:', err);
+        res.status(err.statusCode || 502).json({ error: err.message || 'Bancamp audio proxy error' });
+    }
+});
 
 /**
  * GET /api/highscores?limit=10
