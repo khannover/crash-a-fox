@@ -43,8 +43,18 @@
                 🎵 Music Mode
             </button>
             <div id="music-panel" class="hidden mt-4 p-4 bg-gray-800/90 rounded-xl text-white w-full max-w-md">
+                <!-- Difficulty selector -->
+                <div class="mb-4">
+                    <label class="block mb-2 font-semibold">Schwierigkeit</label>
+                    <div class="flex gap-2">
+                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="easy">🐢 Leicht</button>
+                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="normal">🦊 Normal</button>
+                        <button class="diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2" data-diff="hard">🔥 Schwer</button>
+                    </div>
+                </div>
                 <label for="audio-file" class="block mb-2 font-semibold">Upload MP3</label>
-                <input id="audio-file" type="file" accept="audio/mp3,audio/mpeg,audio/*" class="block w-full mb-4 text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-orange-500 file:text-white hover:file:bg-orange-600">
+                <input id="audio-file" type="file" accept="audio/mp3,audio/mpeg,audio/*" class="block w-full mb-1 text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-orange-500 file:text-white hover:file:bg-orange-600">
+                <p id="last-file-hint" class="hidden text-xs text-gray-400 mb-3"></p>
                 <label for="audio-url" class="block mb-2 font-semibold">or paste audio URL</label>
                 <input id="audio-url" type="text" placeholder="https://..." class="block w-full mb-4 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-sm">
                 <button id="play-music-btn" disabled class="w-full px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xl font-bold rounded-xl shadow-lg transition">
@@ -54,12 +64,33 @@
         </div>
 
         <!-- Game Over Bildschirm -->
-        <div id="game-over-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20 hidden">
-            <h2 class="text-5xl md:text-7xl font-bold text-red-500 mb-4">AUA!</h2>
-            <p class="text-white text-2xl mb-8">Deine Punkte: <span id="final-score" class="text-yellow-400 font-bold">0</span></p>
-            <button id="restart-btn" class="px-8 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
-                Nochmal spielen
-            </button>
+        <div id="game-over-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20 hidden overflow-y-auto py-6">
+            <h2 class="text-5xl md:text-7xl font-bold text-red-500 mb-2">AUA!</h2>
+            <p class="text-white text-2xl mb-4">Deine Punkte: <span id="final-score" class="text-yellow-400 font-bold">0</span></p>
+
+            <!-- Highscore speichern -->
+            <div id="save-score-form" class="flex gap-2 mb-4 w-full max-w-xs">
+                <input id="player-name" type="text" maxlength="20" placeholder="Dein Name…"
+                    class="flex-1 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-base border border-gray-500 focus:outline-none focus:border-yellow-400">
+                <button id="save-score-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition" title="Score speichern">
+                    💾
+                </button>
+            </div>
+
+            <!-- Highscore-Liste -->
+            <div id="highscore-list" class="hidden mb-4 w-full max-w-xs">
+                <h3 class="text-center text-yellow-400 font-bold mb-2">🏆 Top Scores</h3>
+                <div id="highscore-entries" class="text-white text-sm"></div>
+            </div>
+
+            <div class="flex gap-4 mt-2">
+                <button id="restart-btn" class="px-6 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
+                    🔄 Nochmal
+                </button>
+                <button id="main-menu-btn" class="px-6 py-4 bg-gray-600 hover:bg-gray-500 text-white text-xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
+                    🏠 Menü
+                </button>
+            </div>
         </div>
     </div>
 
@@ -95,6 +126,8 @@
         let audioSource = null;
         let audioBuffer = null;
         let musicReactiveMode = false;
+        let lastGameWasMusic = false;    // tracks whether last game used music mode
+        let musicPanelRestored = false;  // restore saved audio only once per session
 
         // Band energy values updated each frame
         let bassEnergy = 0;   // 20–250 Hz
@@ -103,6 +136,14 @@
         let overallAmplitude = 0;
         let beatCooldown = 0;
         let dataArray = null;
+
+        // Difficulty
+        let musicDifficulty = 'normal';
+        const DIFFICULTY_SETTINGS = {
+            'easy':   { bassSpeedMultiplier: 0.0015, maxSpeed: 0.7 },
+            'normal': { bassSpeedMultiplier: 0.003,  maxSpeed: 1.2 },
+            'hard':   { bassSpeedMultiplier: 0.006,  maxSpeed: 2.0 }
+        };
 
         // Audio tuning constants
         const BASS_BIN_START = 0;
@@ -161,21 +202,66 @@
 
             // Event Listeners für UI
             document.getElementById('start-btn').addEventListener('click', startGame);
-            document.getElementById('restart-btn').addEventListener('click', startGame);
+            document.getElementById('restart-btn').addEventListener('click', () => {
+                if (lastGameWasMusic && audioBuffer) {
+                    setupAudioContext();
+                    startGame();
+                    startMusic();
+                    document.getElementById('music-viz').classList.remove('hidden');
+                } else {
+                    startGame();
+                }
+            });
+            document.getElementById('main-menu-btn').addEventListener('click', mainMenu);
+
+            // Save highscore button
+            document.getElementById('save-score-btn').addEventListener('click', () => {
+                const nameInput = document.getElementById('player-name');
+                const name = nameInput.value.trim() || 'Anonym';
+                localStorage.setItem('crashfuchs_lastPlayerName', name);
+                saveHighscore(name, score);
+                document.getElementById('save-score-form').classList.add('hidden');
+                loadHighscores();
+            });
 
             // Music Mode UI
             document.getElementById('music-mode-btn').addEventListener('click', () => {
-                document.getElementById('music-panel').classList.toggle('hidden');
+                const panel = document.getElementById('music-panel');
+                panel.classList.toggle('hidden');
+                if (!panel.classList.contains('hidden') && !musicPanelRestored) {
+                    musicPanelRestored = true;
+                    restoreLastAudio();
+                }
             });
+
+            // Difficulty buttons
+            document.querySelectorAll('.diff-btn').forEach(btn => {
+                btn.addEventListener('click', () => setDifficulty(btn.dataset.diff));
+            });
+            // Apply saved (or default) difficulty on load
+            setDifficulty(localStorage.getItem('crashfuchs_difficulty') || 'normal');
 
             document.getElementById('audio-file').addEventListener('change', (e) => {
                 const file = e.target.files[0];
-                if (file) loadAudioFile(file);
+                if (file) {
+                    loadAudioFile(file);
+                    // Persist file in IndexedDB so it can be restored next session
+                    const reader2 = new FileReader();
+                    reader2.onload = ev => saveAudioToIDB(ev.target.result, file.name);
+                    reader2.readAsArrayBuffer(file);
+                    // Clear any saved URL so we don't conflict
+                    localStorage.removeItem('crashfuchs_lastAudioUrl');
+                }
             });
 
             document.getElementById('audio-url').addEventListener('change', (e) => {
                 const url = e.target.value.trim();
-                if (url) loadAudioURL(url);
+                if (url) {
+                    loadAudioURL(url);
+                    localStorage.setItem('crashfuchs_lastAudioUrl', url);
+                    // Clear saved file so URL takes precedence next session
+                    clearAudioFromIDB();
+                }
             });
 
             document.getElementById('play-music-btn').addEventListener('click', () => {
@@ -581,8 +667,33 @@
 
         function gameOver() {
             isPlaying = false;
+            lastGameWasMusic = musicReactiveMode;
+            // Stop music playback
+            if (audioSource) {
+                try { audioSource.stop(); } catch(e) {}
+                audioSource = null;
+            }
+            musicReactiveMode = false;
+            document.getElementById('music-viz').classList.add('hidden');
             document.getElementById('game-over-screen').classList.remove('hidden');
             document.getElementById('final-score').innerText = Math.floor(score);
+            // Pre-fill name from last session
+            const savedName = localStorage.getItem('crashfuchs_lastPlayerName') || '';
+            document.getElementById('player-name').value = savedName;
+            document.getElementById('save-score-form').classList.remove('hidden');
+            loadHighscores();
+        }
+
+        function mainMenu() {
+            isPlaying = false;
+            if (audioSource) {
+                try { audioSource.stop(); } catch(e) {}
+                audioSource = null;
+            }
+            musicReactiveMode = false;
+            document.getElementById('music-viz').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
         }
 
         function updateScoreDisplay() {
@@ -596,8 +707,10 @@
                 // Weltgeschwindigkeit erhöhen
                 if (musicReactiveMode) {
                     updateAudioData();
-                    // Base speed progression + bass boost for "pumping" feel
-                    speed = Math.max(MIN_MUSIC_SPEED, speed + BASE_SPEED_INCREMENT + bassEnergy * BASS_SPEED_MULTIPLIER);
+                    const diff = DIFFICULTY_SETTINGS[musicDifficulty];
+                    // Base speed progression + bass boost; capped per difficulty
+                    speed = Math.min(diff.maxSpeed,
+                        Math.max(MIN_MUSIC_SPEED, speed + BASE_SPEED_INCREMENT + bassEnergy * diff.bassSpeedMultiplier));
                 } else {
                     speed += BASE_SPEED_INCREMENT;
                 }
@@ -731,6 +844,164 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Difficulty ---
+        function setDifficulty(diff) {
+            if (!DIFFICULTY_SETTINGS[diff]) return;
+            musicDifficulty = diff;
+            localStorage.setItem('crashfuchs_difficulty', diff);
+            document.querySelectorAll('.diff-btn').forEach(btn => {
+                const active = btn.dataset.diff === diff;
+                btn.className = 'diff-btn flex-1 py-2 rounded-lg font-bold text-sm transition border-2 ' +
+                    (active ? 'bg-orange-500 border-yellow-300 text-white' : 'bg-gray-700 border-gray-500 text-gray-300');
+            });
+        }
+
+        // --- Highscores ---
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function modeLabel(mode) {
+            const labels = {
+                'normal':       '🎮',
+                'music-easy':   '🎵🐢',
+                'music-normal': '🎵🦊',
+                'music-hard':   '🎵🔥'
+            };
+            return labels[mode] || '🎮';
+        }
+
+        function saveHighscore(name, currentScore) {
+            const entry = {
+                name,
+                score: Math.floor(currentScore),
+                mode: lastGameWasMusic ? ('music-' + musicDifficulty) : 'normal',
+                date: new Date().toISOString()
+            };
+            // Update localStorage (offline copy)
+            const local = JSON.parse(localStorage.getItem('crashfuchs_highscores') || '[]');
+            local.push(entry);
+            local.sort((a, b) => b.score - a.score);
+            local.splice(100); // keep top 100 locally
+            localStorage.setItem('crashfuchs_highscores', JSON.stringify(local));
+
+            // Persist to server (best-effort)
+            fetch('/api/highscores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: entry.name, score: entry.score, mode: entry.mode })
+            }).catch(() => {}); // server may not be running (static file mode)
+        }
+
+        function loadHighscores() {
+            fetch('/api/highscores?limit=10')
+                .then(r => { if (!r.ok) throw new Error('no server'); return r.json(); })
+                .then(scores => displayHighscores(scores))
+                .catch(() => {
+                    // Fallback to localStorage
+                    const local = JSON.parse(localStorage.getItem('crashfuchs_highscores') || '[]');
+                    displayHighscores(local.slice(0, 10));
+                });
+        }
+
+        function displayHighscores(scores) {
+            const list = document.getElementById('highscore-list');
+            const entries = document.getElementById('highscore-entries');
+            if (!scores || !scores.length) {
+                list.classList.add('hidden');
+                return;
+            }
+            list.classList.remove('hidden');
+            entries.innerHTML = scores.map((s, i) =>
+                `<div class="flex justify-between items-center py-1 border-b border-gray-600">
+                    <span class="flex items-center gap-1"><span class="text-gray-400 w-5 text-right">${i + 1}.</span>
+                    <span class="ml-1">${escapeHtml(s.name)}</span></span>
+                    <span class="flex items-center gap-1 text-yellow-400 font-bold">
+                        ${escapeHtml(String(s.score))}
+                        <span class="text-xs text-gray-400">${modeLabel(s.mode)}</span>
+                    </span>
+                </div>`
+            ).join('');
+        }
+
+        // --- Audio persistence (IndexedDB for uploaded files) ---
+        const IDB_NAME = 'CrashFuchsDB';
+        const IDB_VERSION = 1;
+        const IDB_STORE = 'audio';
+
+        function openIDB(callback) {
+            const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+            req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE, { keyPath: 'id' });
+            req.onsuccess = e => callback(null, e.target.result);
+            req.onerror = e => callback(e.target.error, null);
+        }
+
+        function saveAudioToIDB(arrayBuffer, filename) {
+            openIDB((err, db) => {
+                if (err) return;
+                const tx = db.transaction(IDB_STORE, 'readwrite');
+                tx.objectStore(IDB_STORE).put({ id: 'lastFile', data: arrayBuffer, name: filename });
+            });
+        }
+
+        function clearAudioFromIDB() {
+            openIDB((err, db) => {
+                if (err) return;
+                const tx = db.transaction(IDB_STORE, 'readwrite');
+                tx.objectStore(IDB_STORE).delete('lastFile');
+            });
+        }
+
+        function restoreLastAudio() {
+            // Priority 1: saved URL
+            const savedUrl = localStorage.getItem('crashfuchs_lastAudioUrl');
+            if (savedUrl) {
+                document.getElementById('audio-url').value = savedUrl;
+                setupAudioContext();
+                // Load silently (user clicks Play to start)
+                fetch(savedUrl)
+                    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+                    .then(buf => audioContext.decodeAudioData(buf, buffer => {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                    }))
+                    .catch(() => {
+                        // URL no longer valid – clear and try IDB
+                        localStorage.removeItem('crashfuchs_lastAudioUrl');
+                        document.getElementById('audio-url').value = '';
+                        tryRestoreFromIDB();
+                    });
+                return;
+            }
+            // Priority 2: last uploaded file stored in IndexedDB
+            tryRestoreFromIDB();
+        }
+
+        function tryRestoreFromIDB() {
+            openIDB((err, db) => {
+                if (err) return;
+                const tx = db.transaction(IDB_STORE, 'readonly');
+                const req = tx.objectStore(IDB_STORE).get('lastFile');
+                req.onsuccess = e => {
+                    const record = e.target.result;
+                    if (!record || audioBuffer) return; // nothing stored, or already loaded
+                    setupAudioContext();
+                    audioContext.decodeAudioData(record.data.slice(0), buffer => {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                        const hint = document.getElementById('last-file-hint');
+                        hint.textContent = '↩ Letztes File: ' + record.name;
+                        hint.classList.remove('hidden');
+                    });
+                };
+            });
         }
 
         // --- Start ---
