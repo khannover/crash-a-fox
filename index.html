@@ -43,9 +43,9 @@
                 🎵 Music Mode
             </button>
             <div id="music-panel" class="hidden mt-4 p-4 bg-gray-800/90 rounded-xl text-white w-full max-w-md">
-                <label class="block mb-2 font-semibold">Upload MP3</label>
+                <label for="audio-file" class="block mb-2 font-semibold">Upload MP3</label>
                 <input id="audio-file" type="file" accept="audio/mp3,audio/mpeg,audio/*" class="block w-full mb-4 text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-orange-500 file:text-white hover:file:bg-orange-600">
-                <label class="block mb-2 font-semibold">or paste audio URL</label>
+                <label for="audio-url" class="block mb-2 font-semibold">or paste audio URL</label>
                 <input id="audio-url" type="text" placeholder="https://..." class="block w-full mb-4 px-3 py-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 text-sm">
                 <button id="play-music-btn" disabled class="w-full px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xl font-bold rounded-xl shadow-lg transition">
                     ▶ Play with Music
@@ -103,6 +103,21 @@
         let overallAmplitude = 0;
         let beatCooldown = 0;
         let dataArray = null;
+
+        // Audio tuning constants
+        const BASS_BIN_START = 0;
+        const BASS_BIN_END = 4;       // bins 0–3 (bass)
+        const MID_BIN_START = 4;
+        const MID_BIN_END = 16;       // bins 4–15 (mid)
+        const TREBLE_BIN_START = 16;
+        const TREBLE_BIN_END = 32;    // bins 16–31 (treble)
+        const BASS_BEAT_THRESHOLD = 0.75;
+        const BEAT_COOLDOWN_FRAMES = 15;
+        const BASE_SPEED_INCREMENT = 0.0001;
+        const MIN_MUSIC_SPEED = 0.3;
+        const BASS_SPEED_MULTIPLIER = 0.008;
+        const SHAKE_INTENSITY_X = 0.3;
+        const SHAKE_INTENSITY_Y = 0.15;
 
         // --- Initialisierung ---
         function init() {
@@ -422,10 +437,16 @@
             setupAudioContext();
             const reader = new FileReader();
             reader.onload = function(e) {
-                audioContext.decodeAudioData(e.target.result, function(buffer) {
-                    audioBuffer = buffer;
-                    document.getElementById('play-music-btn').disabled = false;
-                });
+                audioContext.decodeAudioData(
+                    e.target.result,
+                    function(buffer) {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                    },
+                    function() {
+                        alert('Could not decode audio file. Please try a different MP3.');
+                    }
+                );
             };
             reader.readAsArrayBuffer(file);
         }
@@ -433,13 +454,26 @@
         function loadAudioURL(url) {
             setupAudioContext();
             fetch(url)
-                .then(r => r.arrayBuffer())
-                .then(buf => audioContext.decodeAudioData(buf))
-                .then(buffer => {
-                    audioBuffer = buffer;
-                    document.getElementById('play-music-btn').disabled = false;
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.arrayBuffer();
                 })
-                .catch(() => {});
+                .then(buf => audioContext.decodeAudioData(
+                    buf,
+                    buffer => {
+                        audioBuffer = buffer;
+                        document.getElementById('play-music-btn').disabled = false;
+                    },
+                    () => {
+                        alert('Could not decode audio from URL. The file may not be a supported audio format.');
+                    }
+                ))
+                .catch(err => {
+                    if (err.message && err.message.startsWith('HTTP ')) {
+                        alert('Could not load audio from URL (' + err.message + '). Check the URL and ensure the server allows cross-origin requests.');
+                    }
+                    // decode errors are already handled above
+                });
         }
 
         function startMusic() {
@@ -462,18 +496,18 @@
 
             // Bass: bins 0–3
             let bass = 0;
-            for (let i = 0; i < 4; i++) bass += dataArray[i];
-            bassEnergy = (bass / 4) / 255;
+            for (let i = BASS_BIN_START; i < BASS_BIN_END; i++) bass += dataArray[i];
+            bassEnergy = (bass / (BASS_BIN_END - BASS_BIN_START)) / 255;
 
             // Mid: bins 4–15
             let mid = 0;
-            for (let i = 4; i < 16; i++) mid += dataArray[i];
-            midEnergy = (mid / 12) / 255;
+            for (let i = MID_BIN_START; i < MID_BIN_END; i++) mid += dataArray[i];
+            midEnergy = (mid / (MID_BIN_END - MID_BIN_START)) / 255;
 
             // Treble: bins 16–31
             let treble = 0;
-            for (let i = 16; i < 32; i++) treble += dataArray[i];
-            trebleEnergy = (treble / 16) / 255;
+            for (let i = TREBLE_BIN_START; i < TREBLE_BIN_END; i++) treble += dataArray[i];
+            trebleEnergy = (treble / (TREBLE_BIN_END - TREBLE_BIN_START)) / 255;
 
             overallAmplitude = (bassEnergy + midEnergy + trebleEnergy) / 3;
         }
@@ -482,7 +516,8 @@
             const bars = document.querySelectorAll('#music-viz .viz-bar');
             const step = Math.floor(dataArray.length / 8);
             bars.forEach((bar, i) => {
-                const value = dataArray[i * step] / 255;
+                const idx = Math.min(i * step, dataArray.length - 1);
+                const value = dataArray[idx] / 255;
                 bar.style.height = Math.max(4, value * 40) + 'px';
             });
         }
@@ -561,9 +596,10 @@
                 // Weltgeschwindigkeit erhöhen
                 if (musicReactiveMode) {
                     updateAudioData();
-                    speed = Math.max(0.3, speed + bassEnergy * 0.008);
+                    // Base speed progression + bass boost for "pumping" feel
+                    speed = Math.max(MIN_MUSIC_SPEED, speed + BASE_SPEED_INCREMENT + bassEnergy * BASS_SPEED_MULTIPLIER);
                 } else {
-                    speed += 0.0001;
+                    speed += BASE_SPEED_INCREMENT;
                 }
                 distance += speed;
                 score += speed * 0.1;
@@ -622,12 +658,15 @@
                     ambientLight.intensity = 0.6 + bassEnergy * 0.6;
 
                     // Camera shake on heavy bass beats
-                    if (bassEnergy > 0.75 && beatCooldown === 0) {
-                        camera.position.x += (Math.random() - 0.5) * 0.3;
-                        camera.position.y += (Math.random() - 0.5) * 0.15;
-                        beatCooldown = 15;
+                    if (bassEnergy > BASS_BEAT_THRESHOLD && beatCooldown === 0) {
+                        camera.position.x += (Math.random() - 0.5) * SHAKE_INTENSITY_X;
+                        camera.position.y += (Math.random() - 0.5) * SHAKE_INTENSITY_Y;
+                        beatCooldown = BEAT_COOLDOWN_FRAMES;
                     }
                     if (beatCooldown > 0) beatCooldown--;
+                    // Gradually return camera to base position to prevent drift
+                    camera.position.x += (0 - camera.position.x) * 0.1;
+                    camera.position.y += (5 - camera.position.y) * 0.1;
 
                     // Update visualizer bars
                     updateMusicViz();
