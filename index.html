@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crash Fuchs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; }
+        #game-canvas { display: block; width: 100vw; height: 100vh; }
+        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .interactive { pointer-events: auto; }
+    </style>
+</head>
+<body>
+
+    <!-- Spiel-Canvas -->
+    <div id="game-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui" class="ui-layer flex flex-col justify-between p-6">
+        <div class="flex justify-between items-start text-white drop-shadow-md font-bold text-2xl md:text-4xl" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">
+            <div>Punkte: <span id="score">0</span></div>
+        </div>
+
+        <!-- Startbildschirm -->
+        <div id="start-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm z-10">
+            <h1 class="text-5xl md:text-7xl font-extrabold text-yellow-400 mb-4 text-center drop-shadow-lg" style="-webkit-text-stroke: 2px #b45309;">CRASH FUCHS</h1>
+            <p class="text-white text-lg md:text-2xl mb-8 text-center px-4 max-w-2xl">
+                Steuerung:<br>
+                ⬅️ ➡️ (Pfeiltasten oder A/D) zum Wechseln der Spur<br>
+                ⬆️ (Pfeil hoch, Leertaste oder W) zum Springen<br>
+                📱 Mobile: Wischen (Swipe) nach links/rechts/oben
+            </p>
+            <button id="start-btn" class="px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105 border-4 border-yellow-300">
+                Spiel Starten
+            </button>
+        </div>
+
+        <!-- Game Over Bildschirm -->
+        <div id="game-over-screen" class="interactive absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20 hidden">
+            <h2 class="text-5xl md:text-7xl font-bold text-red-500 mb-4">AUA!</h2>
+            <p class="text-white text-2xl mb-8">Deine Punkte: <span id="final-score" class="text-yellow-400 font-bold">0</span></p>
+            <button id="restart-btn" class="px-8 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl shadow-lg transition transform hover:scale-105">
+                Nochmal spielen
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Variablen & Zustand ---
+        let scene, camera, renderer;
+        let foxGroup, foxBody, foxLegs = [];
+        let obstacles = [];
+        let collectibles = [];
+        let groundSegments = [];
+        let animationId;
+        
+        // Spielstatus
+        let isPlaying = false;
+        let score = 0;
+        let speed = 0.3; // Initiale Geschwindigkeit (Kisten kommen auf uns zu)
+        let distance = 0;
+        
+        // Fuchs Bewegung
+        const LANE_WIDTH = 3;
+        let currentLane = 0; // -1 (links), 0 (mitte), 1 (rechts)
+        let isJumping = false;
+        let velocityY = 0;
+        const GRAVITY = -0.015;
+        const JUMP_STRENGTH = 0.35;
+        const FLOOR_Y = 0.5; // Y-Position des Fuchses am Boden
+        let runTime = 0; // Für die Laufanimation
+
+        // --- Initialisierung ---
+        function init() {
+            const container = document.getElementById('game-container');
+
+            // Szene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Himmelblau
+            scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Nebel für Tiefeneffekt
+
+            // Kamera (Hinter dem Fuchs platziert)
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+            camera.position.set(0, 5, 8);
+            camera.lookAt(0, 1, -10);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Licht
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.camera.top = 20;
+            dirLight.shadow.camera.bottom = -20;
+            dirLight.shadow.camera.left = -20;
+            dirLight.shadow.camera.right = 20;
+            scene.add(dirLight);
+
+            // Welt aufbauen
+            createGround();
+            createFox();
+
+            // Event Listeners für Resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Event Listeners für UI
+            document.getElementById('start-btn').addEventListener('click', startGame);
+            document.getElementById('restart-btn').addEventListener('click', startGame);
+
+            // Steuerung einrichten
+            setupControls();
+
+            // Erster Render-Durchlauf (damit man was im Hintergrund sieht)
+            renderer.render(scene, camera);
+        }
+
+        // --- Welt & Objekte ---
+        function createGround() {
+            // Eine einfache Straße mit Gras an den Seiten
+            const grassMat = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
+            const roadMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Braun/Erdig wie in Crash
+            
+            // Langer Boden
+            const groundGeo = new THREE.PlaneGeometry(50, 200);
+            const ground = new THREE.Mesh(groundGeo, grassMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.z = -50;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Straße
+            const roadGeo = new THREE.PlaneGeometry(9, 200);
+            const road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = 0.01; // Leicht über dem Gras
+            road.position.z = -50;
+            road.receiveShadow = true;
+            scene.add(road);
+
+            // Bewegliche Streifen auf der Straße für Geschwindigkeitsgefühl
+            for(let i=0; i<10; i++) {
+                const stripeGeo = new THREE.PlaneGeometry(0.5, 4);
+                const stripeMat = new THREE.MeshBasicMaterial({ color: 0xdeb887 });
+                const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+                stripe.rotation.x = -Math.PI / 2;
+                stripe.position.set(0, 0.02, -i * 10);
+                scene.add(stripe);
+                groundSegments.push(stripe);
+            }
+        }
+
+        function createFox() {
+            foxGroup = new THREE.Group();
+
+            const foxColor = 0xFFCC00; // Gelber Fuchs
+            const mat = new THREE.MeshLambertMaterial({ color: foxColor });
+            const darkMat = new THREE.MeshLambertMaterial({ color: 0x333333 }); // Nase/Augen
+
+            // Körper
+            const bodyGeo = new THREE.BoxGeometry(1.2, 1, 2);
+            foxBody = new THREE.Mesh(bodyGeo, mat);
+            foxBody.position.y = 0.5;
+            foxBody.castShadow = true;
+            foxGroup.add(foxBody);
+
+            // Kopf
+            const headGeo = new THREE.BoxGeometry(1, 1, 1.2);
+            const head = new THREE.Mesh(headGeo, mat);
+            head.position.set(0, 1.2, -0.8);
+            head.castShadow = true;
+            foxGroup.add(head);
+
+            // Schnauze
+            const snoutGeo = new THREE.BoxGeometry(0.6, 0.4, 0.8);
+            const snout = new THREE.Mesh(snoutGeo, mat);
+            snout.position.set(0, 0.9, -1.6);
+            foxGroup.add(snout);
+
+            // Nase
+            const noseGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const nose = new THREE.Mesh(noseGeo, darkMat);
+            nose.position.set(0, 1.0, -2.0);
+            foxGroup.add(nose);
+
+            // Ohren
+            const earGeo = new THREE.ConeGeometry(0.3, 0.6, 4);
+            const earL = new THREE.Mesh(earGeo, mat);
+            earL.position.set(-0.4, 1.8, -0.5);
+            foxGroup.add(earL);
+            const earR = new THREE.Mesh(earGeo, mat);
+            earR.position.set(0.4, 1.8, -0.5);
+            foxGroup.add(earR);
+
+            // Gelbe Blume auf dem Kopf!
+            const flowerGroup = new THREE.Group();
+            
+            // Stiel
+            const stemGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.6);
+            const stemMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            const stem = new THREE.Mesh(stemGeo, stemMat);
+            stem.position.y = 0.3;
+            flowerGroup.add(stem);
+
+            // Mitte der Blume
+            const centerGeo = new THREE.SphereGeometry(0.15);
+            const centerMat = new THREE.MeshLambertMaterial({ color: 0xFF8C00 }); // Orange Mitte
+            const center = new THREE.Mesh(centerGeo, centerMat);
+            center.position.y = 0.6;
+            flowerGroup.add(center);
+
+            // Blütenblätter (Gelb)
+            const petalMat = new THREE.MeshLambertMaterial({ color: 0xFFFF00 });
+            for(let i=0; i<5; i++) {
+                const petalGeo = new THREE.SphereGeometry(0.12);
+                const petal = new THREE.Mesh(petalGeo, petalMat);
+                const angle = (i / 5) * Math.PI * 2;
+                petal.position.set(Math.cos(angle)*0.2, 0.6, Math.sin(angle)*0.2);
+                flowerGroup.add(petal);
+            }
+
+            flowerGroup.position.set(0, 1.7, -0.8);
+            // Blume leicht rotieren lassen im Render-Loop (siehe animate)
+            flowerGroup.name = "flower";
+            foxGroup.add(flowerGroup);
+
+            // Beine
+            for(let i=0; i<4; i++) {
+                const legGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+                const leg = new THREE.Mesh(legGeo, mat);
+                const isFront = i < 2;
+                const isLeft = i % 2 === 0;
+                leg.position.set(isLeft ? -0.5 : 0.5, 0.4, isFront ? -0.5 : 0.5);
+                leg.castShadow = true;
+                foxGroup.add(leg);
+                foxLegs.push(leg);
+            }
+
+            foxGroup.position.set(0, FLOOR_Y, 0);
+            scene.add(foxGroup);
+        }
+
+        function createObstacle(zPos, lane) {
+            // Typische "Crash" Holzkiste
+            const boxGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+            // Einfaches Kreuz-Muster andeuten durch Farbe
+            const boxMat = new THREE.MeshLambertMaterial({ color: 0xcd853f }); 
+            const box = new THREE.Mesh(boxGeo, boxMat);
+            
+            box.position.set(lane * LANE_WIDTH, 0.75, zPos);
+            box.castShadow = true;
+            box.receiveShadow = true;
+            
+            // Inneres Kreuz (simuliert Kisten-Textur)
+            const borderGeo = new THREE.BoxGeometry(1.6, 0.2, 1.6);
+            const borderMat = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+            const borderTop = new THREE.Mesh(borderGeo, borderMat);
+            const borderBottom = new THREE.Mesh(borderGeo, borderMat);
+            borderTop.position.y = 0.65;
+            borderBottom.position.y = -0.65;
+            box.add(borderTop);
+            box.add(borderBottom);
+
+            scene.add(box);
+            obstacles.push(box);
+        }
+
+        function createCollectible(zPos, lane) {
+            // Wumpa-Frucht ähnlich (Roter Apfel)
+            const fruitGeo = new THREE.SphereGeometry(0.5, 16, 16);
+            const fruitMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+            const fruit = new THREE.Mesh(fruitGeo, fruitMat);
+            
+            fruit.position.set(lane * LANE_WIDTH, 1.5, zPos);
+            fruit.castShadow = true;
+            
+            // Kleines Blatt
+            const leafGeo = new THREE.CylinderGeometry(0, 0.2, 0.4);
+            const leafMat = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+            const leaf = new THREE.Mesh(leafGeo, leafMat);
+            leaf.position.y = 0.5;
+            leaf.rotation.z = 0.5;
+            fruit.add(leaf);
+
+            scene.add(fruit);
+            collectibles.push({ mesh: fruit, type: 'apple' });
+        }
+
+        // --- Steuerung ---
+        function setupControls() {
+            // Tastatur
+            window.addEventListener('keydown', (e) => {
+                if (!isPlaying) return;
+                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                    if (currentLane > -1) currentLane--;
+                } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                    if (currentLane < 1) currentLane++;
+                } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.code === 'Space') {
+                    jump();
+                }
+            });
+
+            // Touch / Wischen (Swipe)
+            let touchStartX = 0;
+            let touchStartY = 0;
+
+            window.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+                touchStartY = e.changedTouches[0].screenY;
+            });
+
+            window.addEventListener('touchend', (e) => {
+                if (!isPlaying) return;
+                const touchEndX = e.changedTouches[0].screenX;
+                const touchEndY = e.changedTouches[0].screenY;
+                
+                const dx = touchEndX - touchStartX;
+                const dy = touchEndY - touchStartY;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    // Horizontal Swipe
+                    if (Math.abs(dx) > 30) {
+                        if (dx > 0 && currentLane < 1) currentLane++; // Swipe Right
+                        else if (dx < 0 && currentLane > -1) currentLane--; // Swipe Left
+                    }
+                } else {
+                    // Vertical Swipe
+                    if (dy < -30) jump(); // Swipe Up
+                }
+            });
+        }
+
+        function jump() {
+            if (!isJumping) {
+                isJumping = true;
+                velocityY = JUMP_STRENGTH;
+            }
+        }
+
+        // --- Game Logic & Loop ---
+        function startGame() {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            
+            // Reset state
+            score = 0;
+            distance = 0;
+            speed = 0.3;
+            currentLane = 0;
+            foxGroup.position.set(0, FLOOR_Y, 0);
+            foxGroup.rotation.y = 0;
+            isJumping = false;
+            velocityY = 0;
+            updateScoreDisplay();
+            
+            // Clean up old objects
+            obstacles.forEach(o => scene.remove(o));
+            collectibles.forEach(c => scene.remove(c.mesh));
+            obstacles = [];
+            collectibles = [];
+
+            // Generate initial level ahead
+            for(let i=1; i<=10; i++) spawnRandomRow(-i * 20);
+
+            isPlaying = true;
+            if(!animationId) animate();
+        }
+
+        function spawnRandomRow(zPos) {
+            const rowType = Math.random();
+            const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+
+            if (rowType < 0.6) {
+                // Nur Kiste
+                createObstacle(zPos, lane);
+            } else if (rowType < 0.8) {
+                // Kiste und Apfel auf einer anderen Spur
+                createObstacle(zPos, lane);
+                let appleLane = lane === 0 ? (Math.random() > 0.5 ? 1 : -1) : 0;
+                createCollectible(zPos, appleLane);
+            } else {
+                // Nur Apfel (einfacher Punkt)
+                createCollectible(zPos, lane);
+            }
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = Math.floor(score);
+        }
+
+        function updateScoreDisplay() {
+            document.getElementById('score').innerText = Math.floor(score);
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+
+            if (isPlaying) {
+                // Weltgeschwindigkeit erhöhen
+                speed += 0.0001; 
+                distance += speed;
+                score += speed * 0.1;
+                
+                // UI ab und zu updaten
+                if(Math.floor(distance) % 5 === 0) updateScoreDisplay();
+
+                // Fuchs Horizontal-Bewegung (Lerp)
+                const targetX = currentLane * LANE_WIDTH;
+                foxGroup.position.x += (targetX - foxGroup.position.x) * 0.15;
+
+                // Fuchs Rotation beim Spurwechsel (kleiner Neigeeffekt)
+                foxGroup.rotation.z = (foxGroup.position.x - targetX) * 0.1;
+
+                // Sprung-Logik (Gravitation)
+                if (isJumping) {
+                    foxGroup.position.y += velocityY;
+                    velocityY += GRAVITY;
+                    
+                    if (foxGroup.position.y <= FLOOR_Y) {
+                        foxGroup.position.y = FLOOR_Y;
+                        isJumping = false;
+                        velocityY = 0;
+                    }
+                }
+
+                // Lauf-Animation (Beine wackeln, Körper wippt)
+                runTime += speed * 2;
+                if(!isJumping) {
+                    foxBody.position.y = 0.5 + Math.abs(Math.sin(runTime * 2)) * 0.1;
+                    foxLegs[0].rotation.x = Math.sin(runTime * 2) * 0.5;
+                    foxLegs[1].rotation.x = -Math.sin(runTime * 2) * 0.5;
+                    foxLegs[2].rotation.x = -Math.sin(runTime * 2) * 0.5;
+                    foxLegs[3].rotation.x = Math.sin(runTime * 2) * 0.5;
+                } else {
+                    // Pose während des Sprungs
+                    foxLegs.forEach(leg => leg.rotation.x = 0.2);
+                }
+
+                // Blume drehen
+                const flower = foxGroup.getObjectByName("flower");
+                if(flower) flower.rotation.y += 0.05;
+
+                // Bodenstreifen bewegen
+                groundSegments.forEach(stripe => {
+                    stripe.position.z += speed;
+                    if (stripe.position.z > 10) stripe.position.z -= 100;
+                });
+
+                // Hindernisse bewegen & Kollision prüfen
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    let obs = obstacles[i];
+                    obs.position.z += speed;
+
+                    // Kollisionsabfrage (AABB stark vereinfacht)
+                    const distX = Math.abs(foxGroup.position.x - obs.position.x);
+                    const distZ = Math.abs(foxGroup.position.z - obs.position.z);
+                    const distY = obs.position.y - foxGroup.position.y; // Kisten sind ca 1.5 hoch
+                    
+                    if (distZ < 1.0 && distX < 1.0 && distY > -0.5) {
+                        // Crash!
+                        gameOver();
+                    }
+
+                    // Entfernen und neu spawnen wenn hinter Kamera
+                    if (obs.position.z > 10) {
+                        scene.remove(obs);
+                        obstacles.splice(i, 1);
+                        spawnRandomRow(-100);
+                    }
+                }
+
+                // Collectibles bewegen & einsammeln
+                for (let i = collectibles.length - 1; i >= 0; i--) {
+                    let col = collectibles[i];
+                    col.mesh.position.z += speed;
+                    col.mesh.rotation.y += 0.05;
+
+                    const distX = Math.abs(foxGroup.position.x - col.mesh.position.x);
+                    const distZ = Math.abs(foxGroup.position.z - col.mesh.position.z);
+                    const distY = Math.abs(foxGroup.position.y + 0.5 - col.mesh.position.y);
+
+                    if (distZ < 1.5 && distX < 1.5 && distY < 2.0) {
+                        // Eingesammelt!
+                        score += 50;
+                        updateScoreDisplay();
+                        scene.remove(col.mesh);
+                        collectibles.splice(i, 1);
+                    } else if (col.mesh.position.z > 10) {
+                        scene.remove(col.mesh);
+                        collectibles.splice(i, 1);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Start ---
+        window.onload = init;
+    </script>
+</body>
+</html>
