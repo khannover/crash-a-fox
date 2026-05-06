@@ -1,0 +1,13 @@
+{
+  "name": "crash-a-fox",
+  "version": "1.0.0",
+  "description": "Crash Fuchs game server with highscore backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "express": "^4.19.2"
+  }
+}
